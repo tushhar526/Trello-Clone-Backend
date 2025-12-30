@@ -3,10 +3,15 @@ from .models import *
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 from datetime import timedelta
+from django.contrib.auth.hashers import make_password, check_password
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from .serializers import *
 from .helpers import *
+from .redis import *
+from .auth_middlewares import *
+from .custom_exception import *
+import uuid
 
 # Create your views here.
 
@@ -19,50 +24,27 @@ class RegisterUserAPI(APIView):
             serializer = UserSerializer(data=request.data)
 
             if not serializer.is_valid():
+                print("ERROR = ", serializer.error_messages)
                 return Response(
                     {"status": 400, "message": serializer.errors}, status=400
                 )
 
             data = serializer.validated_data
-            identifier = data["identifier"].strip()
-
-            email = None
-            phonenumber = None
-            verification_method = None
+            data["password"] = make_password(data["password"])
             otp = generate_OTP()
 
-            if "@" in identifier:
-                email = identifier
-                verification_method = "email"
-            else:
-                phonenumber = identifier
-                verification_method = "phonenumber"
-                otp = "1111"
+            if not sendOTP(data["email"], data["username"], otp):
+                return Response(
+                    {"status": 400, "message": "an error occured in sending you otp"},
+                    status=400,
+                )
 
-            Verification_user = VerificationUserModel.objects.create(
-                username=data["username"],
-                email=email,
-                phonenumber=phonenumber,
-                password=make_password(data["password"]),
-                otp=otp,
-                verification_purpose="signup",
-                expires_at=timezone.now() + timedelta(minutes=2),
-            )
-
-            if verification_method == "email":
-                if not sendOTP(email, data["username"], otp):
-                    Verification_user.delete()
-                    return Response(
-                        {"status": 500, "message": "Couldn't send the email"},
-                        status=500,
-                    )
-            else:
-                """SENDING OTP THROUGH SMS"""
+            token = generate_token("signup", data, otp)
 
             return Response(
                 {
                     "status": 200,
-                    "user_id": Verification_user.id,
+                    "token": token,
                     "message": "An OTP is sent to your provided contact",
                 }
             )
@@ -77,6 +59,7 @@ class LoginUserAPI(APIView):
 
     def post(self, request):
         try:
+            print(request.data)
             identifier = request.data.get("identifier")
             password = request.data.get("password")
 
@@ -133,91 +116,70 @@ class ResendOTPAPI(APIView):
 
     def post(self, request):
         try:
-            user_id = request.data.get("user_id")
+            token = auth_middleware(request)
 
-            if not user_id:
+            email = token["data"]["email"]
+            otp = generate_OTP()
+
+            if not sendOTP(email, token["data"]["username"], otp):
                 return Response(
-                    {"status": 400, "message": "User ID is required"},
+                    {
+                        "status": 400,
+                        "message": "Couldn't send the otp at the given email",
+                    },
                     status=400,
                 )
 
-            try:
-                verification = VerificationUserModel.objects.get(id=user_id)
-            except VerificationUserModel.DoesNotExist:
-                return Response(
-                    {"status": 403, "message": "Invalid verification record"},
-                    status=403,
-                )
+            new_token = generate_token(token["token_type"], token["data"], otp)
 
-            # Check if last OTP was sent less than 30 seconds ago (anti-spam)
-            if (
-                verification.otp_sent_at
-                and (timezone.now() - verification.otp_sent_at).seconds < 30
-            ):
-                return Response(
-                    {
-                        "status": 429,
-                        "message": "Please wait before requesting another OTP",
-                    },
-                    status=429,
-                )
+            return Response({"status": 200, token: new_token}, status=200)
 
-            # Generate new OTP
-            new_otp = verification.resend_OTP if verification.email else "1111"
-            verification.expires_at = timezone.now() + timedelta(minutes=5)
-            verification.last_resent_at = timezone.now()
-            verification.save()
-
-            # Send OTP
-            if verification.email:
-                if not sendOTP(verification.email, verification.username, new_otp):
-                    return Response(
-                        {"status": 500, "message": "Failed to send OTP"},
-                        status=500,
-                    )
-            else:
-                """RESENDING OTP to phone number"""
-                # if not sendSMS(verification.phonenumber, f"Your OTP is: {new_otp}"):
-                #     return Response(
-                #         {"status": 500, "message": "Failed to send OTP"},
-                #         status=500,
-                #     )
-
-            return Response(
-                {
-                    "status": 200,
-                    "message": "OTP resent successfully",
-                },
-                status=200,
-            )
+        except AuthenticationError as e:
+            return Response({"status": 401, "message": str(e)}, status=401)
 
         except Exception as e:
             return Response(
-                {"status": 500, "message": "Error resending OTP"}, status=500
+                {"status": 500, "message": "Internal Server Error"}, status=500
             )
 
 
 class ForgotPasswordAPI(APIView):
     permission_classes = [AllowAny]
 
-    def post(self, request):
+    def get(self, request):
         try:
-            identifier = request.data['identifier']
+            email = request.data.get("email")
+
+            if not email:
+                return Response(
+                    {"status": 400, "message": "Email is required"}, status=400
+                )
 
             try:
-                user = UserModel.objects.get(email=identifier)
-                response = {
-                    'status':200,}
+                user = UserModel.objects.get(email=email)
             except UserModel.DoesNotExist:
-                try:
-                    user = UserModel.objects.get(phonenumber=identifier)
-                except UserModel.DoesNotExist:
-                    return Response(
-                        {"status": 404, "message": "No User found"},
-                        status=404,
-                    )
+                return Response(
+                    {"status": 400, "message": "No user Found with that email"}
+                )
+
+            login_token = RefreshToken.for_user(user)
+            data = {"user_id": user.user_id, "username": user.username}
+            reset_token = generate_token("password_reset", data)
+
+            reset_link = reset_token
+            login_link = login_token
+            if not sentLink(email, user.username, reset_link, login_link, reset_link):
+                return Response(
+                    {"status": 400, "message": "Couldn't send the link"}, status=400
+                )
+
+            return Response(
+                {"status": 200, "message": "Link sent to provided Email"}, status=200
+            )
         except Exception as e:
-            return Response({'status':500,'message':"An Error Occured"},status=500)
+            return Response(
+                {"status": 500, "message": "Internal Server error"}, status=500
+            )
 
 
 class VerifyOTPAPI(APIView):
@@ -225,54 +187,51 @@ class VerifyOTPAPI(APIView):
 
     def post(self, request):
         try:
-            id = request.data["id"]
-            user_id = request.data["user_id"]
-            otp = request.data["otp"]
+            token = auth_middleware(request)
+            otp = request.data.get("otp")
 
-            if not otp or not id:
+            if not otp:
                 return Response(
                     {"status": 400, "message": "OTP is required for verification"},
                     status=400,
                 )
 
-            verification = VerificationUserModel.objects.filter(id=id)
-
-            if not verification:
-                return Response({"status": 403, "message": "Invalid or Expired OTP"})
-
-            if verification.otp != otp:
-                return Response({"status": 400, "message": "Invalid OTP entered"})
-
-            if verification.verification_purpose == "signup":
-                user = UserModel.objects.create(
-                    username=verification.username,
-                    password=verification.password,
-                    email=verification.email,
-                    phonenumber=verification.phonenumber,
+            if check_password(token["otp"], otp):
+                return Response(
+                    {"status": 400, "message": "Entered Invalid OTP"}, status=400
                 )
 
-                if verification.email:
-                    user.email_verified = True
-                else:
-                    user.phonenumber_verified = True
+            if token["token_type"] == "update_email":
+                user = UserModel.objects.get(user_id=token["data"]["user_id"])
 
-                refresh = RefreshToken.for_user(user)
+                user.email = token["data"]["email"]
+
+                base_response = {"status": 200, "message": "Verification successful"}
+
+            if token["token_type"] == "signup":
+                user = UserModel.create(
+                    {
+                        "username": token["data"]["username"],
+                        "password": token["data"]["password"],
+                        "email": token["data"]["email"],
+                    }
+                )
+                token = RefreshToken.for_user(user)
                 response = {
-                    "status": 200,
-                    "user": {"user_id": user.user_id, "username": user.username},
-                    "message": "OTP Verified successfully",
-                    "token": {
-                        "refresh_token": str(refresh),
-                        "access": str(refresh.access_token),
+                    **base_response,
+                    "user": {
+                        "user_id": user.user_id,
+                        "username": user.username,
                     },
+                    "token": {"access": str(token.access_token), "refresh": str(token)},
                 }
-                
-            # else:
-                
 
             user.save()
 
             return Response(response, status=200)
+
+        except AuthenticationError as e:
+            return Response({"status": 401, "message": str(e)}, status=401)
 
         except Exception as e:
             return Response(

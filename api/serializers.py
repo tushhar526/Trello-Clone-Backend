@@ -13,65 +13,30 @@ class UserSerializer(serializers.ModelSerializer):
             "min_length": "Password should be at least 8 character long",
         },
     )
-    identifier = serializers.CharField(write_only=True)
 
     class Meta:
         model = UserModel
-        fields = ["user_id", "username", "identifier", "password"]
+        fields = ["id", "username", "email", "password"]
         extra_kwargs = {
             "username": {
                 "required": True,
-                "error_message": {"required": "Username is required"},
+                "error_messages": {"required": "Username is required"},
             }
         }
 
-    def validate_username(self, data):
-        username = data["username"]
-
-        if UserModel.objects.filter(username=username).exists():
+    def validate_username(self, value):
+        if UserModel.objects.filter(username=value).exists():
             raise serializers.ValidationError("User name is already registered")
+        return value
 
-    def validate_identifier(self, value):
-        value.strip()
+    def validate_email(self, value):
         if not value:
             raise serializers.ValidationError("Email or Number is required")
 
-        value.strip()
-        if not value:
-            raise serializers.ValidationError("Email or Number is required")
+        if not re.search("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", value):
+            raise serializers.ValidationError("Enter a valid email")
 
-        if "@" in value:
-            if "@gmail.com" not in value:
-                raise serializers.ValidationError("Email is not Valid")
-            if UserModel.objects.filter(email=value).exists():
-                raise serializers.ValidationError("Email Already registered")
-        else:
-            digits = re.sub("r'^\d{10}$", value)
-            if not digits:
-                raise serializers.ValidationError("Invalid Phone Number")
-            if UserModel.objects.filter(email=value).exists():
-                raise serializers.ValidationError("Phone Number is already Registered")
+        if UserModel.objects.filter(email=value).exists():
+            raise serializers.ValidationError("Email Already registered")
 
-
-class VerificationUserSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = VerificationUserModel
-        fields = [
-            "username",
-            "email",
-            "phonenumber",
-            "password",
-            "otp",
-            "expires_at",
-            "resent_count",
-            "last_resent_at",
-        ]
-        read_only_fields = ["otp"]
-        extra_kwargs = {"password": {"write_only": True}}
-
-    def validate(self, data):
-        if not data.get("email") and not data.get("phonenumber"):
-            raise serializers.ValidationError(
-                "Either email or phone number is required"
-            )
-        return data
+        return value
