@@ -4,21 +4,14 @@ import json
 TIME_LIMIT = 120
 
 
-def setcache(key, value, tl=TIME_LIMIT):
+def setCache(key, value, tl=TIME_LIMIT):
     if isinstance(value, (dict, list)):
         value = json.dump(value)
 
     cache.set(key, value, timeout=tl)
 
 
-def setSignup(key, value, tl=TIME_LIMIT):
-    if isinstance(value, (dict, list)):
-        value = json.dump(value)
-
-    cache.set(key, value, timeout=tl)
-
-
-def get(key):
+def getCache(key):
     value = cache.get(key)
 
     if value is None:

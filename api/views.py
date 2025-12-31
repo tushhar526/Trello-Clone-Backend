@@ -2,6 +2,7 @@ from django.shortcuts import render
 from .models import *
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.authentication import JWTAuthentication
 from datetime import timedelta
 from django.contrib.auth.hashers import make_password, check_password
 from rest_framework.response import Response
@@ -11,7 +12,6 @@ from .helpers import *
 from .redis import *
 from .auth_middlewares import *
 from .custom_exception import *
-import uuid
 
 # Create your views here.
 
@@ -39,7 +39,9 @@ class RegisterUserAPI(APIView):
                     status=400,
                 )
 
-            token = generate_token("signup", data, otp)
+            token = generate_token("signup", data["email"])
+            cache = {"data": data, "otp": otp}
+            setCache(data["email"], cache)
 
             return Response(
                 {
@@ -59,7 +61,6 @@ class LoginUserAPI(APIView):
 
     def post(self, request):
         try:
-            print(request.data)
             identifier = request.data.get("identifier")
             password = request.data.get("password")
 
@@ -78,13 +79,10 @@ class LoginUserAPI(APIView):
                 try:
                     user = UserModel.objects.get(email=identifier)
                 except UserModel.DoesNotExist:
-                    try:
-                        user = UserModel.objects.get(phonenumber=identifier)
-                    except UserModel.DoesNotExist:
-                        return Response(
-                            {"status": 404, "message": "No User found"},
-                            status=404,
-                        )
+                    return Response(
+                        {"status": 404, "message": "No User found"},
+                        status=404,
+                    )
 
             if not user.check_password(password):
                 return Response(
@@ -143,10 +141,47 @@ class ResendOTPAPI(APIView):
             )
 
 
+class MagicLoginAPI(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        try:
+            token = auth_middleware(request)
+
+            if not token["token_type"] == "magic_login":
+                return Response(
+                    {"status": 400, "message": "Invalid Token Type"}, status=400
+                )
+
+            try:
+                user = UserModel.objects.get(user_id=token["identifier"])
+            except UserModel.DoesNotExist:
+                return Response(
+                    {"status": 400, "message": "No user Found with that email"}
+                )
+
+            token = RefreshToken.for_user(user)
+
+            return Response(
+                {
+                    "status": 200,
+                    "message": "SuccessFull magic login",
+                    "access": str(token.access_token),
+                    "refresh": str(token),
+                }
+            )
+        except AuthenticationError as e:
+            return Response({"status": 401, "message": str(e)})
+        except Exception as e:
+            return Response(
+                {"status": 500, "message": "Internal Server Error"}, status=500
+            )
+
+
 class ForgotPasswordAPI(APIView):
     permission_classes = [AllowAny]
 
-    def get(self, request):
+    def post(self, request):
         try:
             email = request.data.get("email")
 
@@ -162,13 +197,9 @@ class ForgotPasswordAPI(APIView):
                     {"status": 400, "message": "No user Found with that email"}
                 )
 
-            login_token = RefreshToken.for_user(user)
-            data = {"user_id": user.user_id, "username": user.username}
-            reset_token = generate_token("password_reset", data)
+            token = generate_token("magic_login", user.user_id)
 
-            reset_link = reset_token
-            login_link = login_token
-            if not sentLink(email, user.username, reset_link, login_link, reset_link):
+            if not sentLink(email, user.username, token):
                 return Response(
                     {"status": 400, "message": "Couldn't send the link"}, status=400
                 )
@@ -177,6 +208,49 @@ class ForgotPasswordAPI(APIView):
                 {"status": 200, "message": "Link sent to provided Email"}, status=200
             )
         except Exception as e:
+            return Response(
+                {"status": 500, "message": "Internal Server error"}, status=500
+            )
+
+
+class ResetPasswordAPI(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        try:
+            token = auth_middleware(request)
+            password = request.data.get("password")
+
+            if not password:
+                return Response(
+                    {"status": 400, "message": "Password is Required"}, status=400
+                )
+
+            try:
+                user = UserModel.objects.get(user_id=token["user_id"])
+            except UserModel.DoesNotExist:
+                return Response({"status": 400, "message": "No user Found"})
+
+            user.password = make_password(password)
+
+            token = RefreshToken.for_user(user)
+
+            return Response(
+                {
+                    "status": 200,
+                    "message": "Password reset Successfull",
+                    "refresh": str(token),
+                    "access": str(token.access_token),
+                    "user": {"user_id": user.user_id, "username": user.username},
+                }
+            )
+
+        except AuthenticationError as e:
+            print("Error here", str(e))
+            return Response({"status": 400, "message": str(e)}, status=400)
+
+        except Exception as e:
+            print("Reset password error = ", str(e))
             return Response(
                 {"status": 500, "message": "Internal Server error"}, status=500
             )
@@ -196,37 +270,44 @@ class VerifyOTPAPI(APIView):
                     status=400,
                 )
 
-            if check_password(token["otp"], otp):
+            cache = getCache(token["identifier"])
+
+            if cache["otp"] != otp:
                 return Response(
                     {"status": 400, "message": "Entered Invalid OTP"}, status=400
                 )
 
             if token["token_type"] == "update_email":
-                user = UserModel.objects.get(user_id=token["data"]["user_id"])
+                user = UserModel.objects.get(user_id=token["identifier"])
 
-                user.email = token["data"]["email"]
+                user.email = cache["data"]["email"]
+                user.save()
 
-                base_response = {"status": 200, "message": "Verification successful"}
+                response = {"status": 200, "message": "Verification successful"}
 
-            if token["token_type"] == "signup":
-                user = UserModel.create(
+            elif token["token_type"] == "signup":
+                user = UserModel.objects.create(
                     {
-                        "username": token["data"]["username"],
-                        "password": token["data"]["password"],
-                        "email": token["data"]["email"],
+                        "username": cache["data"]["username"],
+                        "password": make_password(cache["data"]["password"]),
+                        "email": cache["data"]["email"],
                     }
                 )
                 token = RefreshToken.for_user(user)
                 response = {
-                    **base_response,
+                    "status": 200,
+                    "message": "Verification successful",
                     "user": {
                         "user_id": user.user_id,
                         "username": user.username,
                     },
-                    "token": {"access": str(token.access_token), "refresh": str(token)},
+                    "refresh": str(token),
+                    "access": str(token.access_token),
                 }
+                user.save()
 
-            user.save()
+            else:
+                return Response({"status": 400, "message": "Invalid Token Type"})
 
             return Response(response, status=200)
 

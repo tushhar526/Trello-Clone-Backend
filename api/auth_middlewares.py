@@ -2,7 +2,7 @@ import jwt
 import os
 from dotenv import load_dotenv
 from .custom_exception import *
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from django.contrib.auth.hashers import make_password
 
 load_dotenv()
@@ -12,15 +12,14 @@ secret_key = os.getenv("SECRET_KEY")
 algorithm = os.getenv("ALGORITHM")
 
 
-def generate_token(token_type, data, otp="1001"):
+def generate_token(token_type, identifier):
     payload = {
         "token_type": token_type,
-        "data": data,
-        "otp": make_password(otp),
-        "exp_time": datetime.now() + timedelta(minutes=2),
+        "identifier": identifier,
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=2),
     }
 
-    token = jwt.encode(payload, secret_key, algorithm=algorithm)
+    token = jwt.encode(payload, secret_key, algorithm)
 
     return token
 
