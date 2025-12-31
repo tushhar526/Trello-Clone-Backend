@@ -12,10 +12,10 @@ secret_key = os.getenv("SECRET_KEY")
 algorithm = os.getenv("ALGORITHM")
 
 
-def generate_token(token_type, identifier):
+def generate_token(token_type, email):
     payload = {
         "token_type": token_type,
-        "identifier": identifier,
+        "email": email,
         "exp": datetime.now(timezone.utc) + timedelta(minutes=2),
     }
 

@@ -116,10 +116,20 @@ class ResendOTPAPI(APIView):
         try:
             token = auth_middleware(request)
 
-            email = token["data"]["email"]
+            email = token["email"]
+            cache = getCache(email)
             otp = generate_OTP()
+            cache["otp"] = otp
+            setCache(email, cache)
 
-            if not sendOTP(email, token["data"]["username"], otp):
+            if token["token_type"] == "signup":
+                username = cache["data"]["username"]
+            else:
+                username = username = UserModel.objects.values_list(
+                    "username", flat=True
+                ).get(email=email)
+
+            if not sendOTP(email, username, otp):
                 return Response(
                     {
                         "status": 400,
@@ -128,7 +138,7 @@ class ResendOTPAPI(APIView):
                     status=400,
                 )
 
-            new_token = generate_token(token["token_type"], token["data"], otp)
+            new_token = generate_token(token["token_type"], email)
 
             return Response({"status": 200, token: new_token}, status=200)
 
@@ -154,7 +164,7 @@ class MagicLoginAPI(APIView):
                 )
 
             try:
-                user = UserModel.objects.get(user_id=token["identifier"])
+                user = UserModel.objects.get(user_id=token["email"])
             except UserModel.DoesNotExist:
                 return Response(
                     {"status": 400, "message": "No user Found with that email"}
@@ -270,7 +280,7 @@ class VerifyOTPAPI(APIView):
                     status=400,
                 )
 
-            cache = getCache(token["identifier"])
+            cache = getCache(token["email"])
 
             if cache["otp"] != otp:
                 return Response(
@@ -278,7 +288,7 @@ class VerifyOTPAPI(APIView):
                 )
 
             if token["token_type"] == "update_email":
-                user = UserModel.objects.get(user_id=token["identifier"])
+                user = UserModel.objects.get(user_id=token["email"])
 
                 user.email = cache["data"]["email"]
                 user.save()
@@ -289,7 +299,7 @@ class VerifyOTPAPI(APIView):
                 user = UserModel.objects.create(
                     {
                         "username": cache["data"]["username"],
-                        "password": make_password(cache["data"]["password"]),
+                        "password": cache["data"]["password"],
                         "email": cache["data"]["email"],
                     }
                 )
