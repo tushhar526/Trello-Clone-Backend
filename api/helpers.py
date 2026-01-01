@@ -111,7 +111,7 @@ def sentLink(email, username, token):
         </div>
 
         <p style="color: #666; font-size: 12px;">
-            This link is valid for 60 seconds.<br>
+            This link is valid for 2 minutes.<br>
             If you didn’t request this, you can safely ignore this email.
         </p>
 
