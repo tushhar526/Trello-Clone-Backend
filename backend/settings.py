@@ -41,6 +41,22 @@ REST_FRAMEWORK = {
 }
 
 
+DEFAULT_ROLES = {
+    "owner": [
+        "add_task",
+        "edit_task",
+        "delete_task",
+        "add_status",
+        "rename_status",
+        "delete_status",
+        "full_access",
+    ],
+    "admin": ["add_task", "edit_task", "delete_task", "add_status"],
+    "manager": ["add_task"],
+    "dev": ["change_status"],
+}
+
+
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=30),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
@@ -91,6 +107,8 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "api",
+    "tasks",
+    "workspaces",
     "rest_framework",
     "corsheaders",
 ]

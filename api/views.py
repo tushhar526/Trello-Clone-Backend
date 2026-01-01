@@ -306,6 +306,8 @@ class VerifyOTPAPI(APIView):
                     email=cache["data"]["email"],
                 )
 
+                user,_ = create_user_with_default_workspace(cache["data"])
+
                 token = RefreshToken.for_user(user)
                 response = {
                     "status": 200,

@@ -1,10 +1,12 @@
+import os
+import pyotp
 import smtplib
+from .models import UserModel
+from dotenv import load_dotenv
+from workspaces.models import *
+from django.conf import settings
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from django.conf import settings
-import pyotp
-from dotenv import load_dotenv
-import os
 
 load_dotenv()
 
@@ -15,6 +17,30 @@ RESET_PASSWORD_URL = os.getenv("RESET_PASSWORD_URL")
 def generate_OTP():
     otp = pyotp.TOTP(pyotp.random_base32(), digits=4, interval=120)
     return otp.now()
+
+
+def create_user_with_default_workspace(data):
+    user = UserModel.objects.create(
+        username=data["username"], email=data["email"], password=data["password"]
+    )
+    user.save()
+
+    workspace = WorkspaceModel.objects.create(
+        name=f"{data["username"]}'s Workspace", owner=user
+    )
+
+    for role_name, perms in settings.DEFAULT_ROLES.items():
+        RoleModel.objects.create(
+            workspace=workspace,
+            role_name=role_name,
+            permissions={role_name: perms},
+            is_default=True,
+        )
+
+    owner_role = RoleModel.objects.get(workspace=workspace, role_name="owner")
+    WorkspaceMemberModel.objects.create(workspace=workspace, user=user, role=owner_role)
+
+    return user, workspace
 
 
 def isemail(email):
