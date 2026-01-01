@@ -6,7 +6,7 @@ TIME_LIMIT = 120
 
 def setCache(key, value, tl=TIME_LIMIT):
     if isinstance(value, (dict, list)):
-        value = json.dump(value)
+        value = json.dumps(value)
 
     cache.set(key, value, timeout=tl)
 
@@ -18,6 +18,6 @@ def getCache(key):
         return None
 
     try:
-        return json.load(value)
+        return json.loads(value)
     except (TypeError, json.JSONDecodeError):
         return value

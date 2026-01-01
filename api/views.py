@@ -13,6 +13,7 @@ from .redis import *
 from .auth_middlewares import *
 from .custom_exception import *
 
+
 # Create your views here.
 
 
@@ -24,13 +25,13 @@ class RegisterUserAPI(APIView):
             serializer = UserSerializer(data=request.data)
 
             if not serializer.is_valid():
-                print("ERROR = ", serializer.error_messages)
                 return Response(
                     {"status": 400, "message": serializer.errors}, status=400
                 )
 
             data = serializer.validated_data
             data["password"] = make_password(data["password"])
+            print("hashed password = ", data["password"])
             otp = generate_OTP()
 
             if not sendOTP(data["email"], data["username"], otp):
@@ -51,6 +52,7 @@ class RegisterUserAPI(APIView):
                 }
             )
         except Exception as e:
+            print("Error in register = ", str(e))
             return Response(
                 {"status": 500, "message": "Internal server error"}, status=500
             )
@@ -104,6 +106,7 @@ class LoginUserAPI(APIView):
             )
 
         except Exception as e:
+            print("Error in login = ", str(e))
             return Response(
                 {"status": 500, "message": "something went wrong"}, status=500
             )
@@ -218,6 +221,7 @@ class ForgotPasswordAPI(APIView):
                 {"status": 200, "message": "Link sent to provided Email"}, status=200
             )
         except Exception as e:
+            print("Error in  forgot password = ", str(e))
             return Response(
                 {"status": 500, "message": "Internal Server error"}, status=500
             )
@@ -297,12 +301,11 @@ class VerifyOTPAPI(APIView):
 
             elif token["token_type"] == "signup":
                 user = UserModel.objects.create(
-                    {
-                        "username": cache["data"]["username"],
-                        "password": cache["data"]["password"],
-                        "email": cache["data"]["email"],
-                    }
+                    username=cache["data"]["username"],
+                    password=cache["data"]["password"],
+                    email=cache["data"]["email"],
                 )
+
                 token = RefreshToken.for_user(user)
                 response = {
                     "status": 200,
@@ -325,6 +328,7 @@ class VerifyOTPAPI(APIView):
             return Response({"status": 401, "message": str(e)}, status=401)
 
         except Exception as e:
+            print("Error in verifying token = ", str(e))
             return Response(
                 {"status": 500, "message": "An Error occured while verifying your OTP"},
                 status=500,

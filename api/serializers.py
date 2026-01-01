@@ -16,7 +16,7 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = UserModel
-        fields = ["id", "username", "email", "password"]
+        fields = ["user_id", "username", "email", "password"]
         extra_kwargs = {
             "username": {
                 "required": True,

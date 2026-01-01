@@ -20,7 +20,6 @@ def generate_token(token_type, email):
     }
 
     token = jwt.encode(payload, secret_key, algorithm)
-
     return token
 
 
@@ -39,11 +38,12 @@ def auth_middleware(request):
     # decoding the token
 
     try:
-        payload = jwt.decode(token, secret_key, algorithm)
+        payload = jwt.decode(token, secret_key, algorithms=[algorithm])
 
     except jwt.ExpiredSignatureError:
         raise AuthenticationError("Token has expired")
-    except jwt.InvalidTokenError:
+    except jwt.InvalidTokenError as e:
+        print("Token error = ", str(e))
         raise AuthenticationError("Invalid Token has been provided")
 
     return payload
