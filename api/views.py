@@ -2,13 +2,12 @@ from django.shortcuts import render
 from .models import *
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework_simplejwt.authentication import JWTAuthentication
 from datetime import timedelta
-from django.contrib.auth.hashers import make_password, check_password
+from django.contrib.auth.hashers import make_password
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.permissions import AllowAny
 from .serializers import *
-from .helpers import *
+from backend.helpers import *
 from .redis import *
 from .auth_middlewares import *
 from .custom_exception import *
@@ -26,7 +25,7 @@ class RegisterUserAPI(APIView):
 
             if not serializer.is_valid():
                 return Response(
-                    {"status": 400, "message": serializer.errors}, status=400
+                    {"status": 400, "message": serializer.error_messages}, status=400
                 )
 
             data = serializer.validated_data
@@ -97,7 +96,7 @@ class LoginUserAPI(APIView):
             return Response(
                 {
                     "status": 200,
-                    "user": {"id": user.user_id, "username": user.username},
+                    "user": {"id": user.id, "username": user.username},
                     "refresh": str(refresh),
                     "access": str(refresh.access_token),
                     "message": "Login successfull",
@@ -167,7 +166,7 @@ class MagicLoginAPI(APIView):
                 )
 
             try:
-                user = UserModel.objects.get(user_id=token["email"])
+                user = UserModel.objects.get(id=token["email"])
             except UserModel.DoesNotExist:
                 return Response(
                     {"status": 400, "message": "No user Found with that email"}
@@ -210,7 +209,7 @@ class ForgotPasswordAPI(APIView):
                     {"status": 400, "message": "No user Found with that email"}
                 )
 
-            token = generate_token("magic_login", user.user_id)
+            token = generate_token("magic_login", user.id)
 
             if not sentLink(email, user.username, token):
                 return Response(
@@ -241,7 +240,7 @@ class ResetPasswordAPI(APIView):
                 )
 
             try:
-                user = UserModel.objects.get(user_id=token["user_id"])
+                user = UserModel.objects.get(id=token["id"])
             except UserModel.DoesNotExist:
                 return Response({"status": 400, "message": "No user Found"})
 
@@ -255,7 +254,7 @@ class ResetPasswordAPI(APIView):
                     "message": "Password reset Successfull",
                     "refresh": str(token),
                     "access": str(token.access_token),
-                    "user": {"user_id": user.user_id, "username": user.username},
+                    "user": {"id": user.id, "username": user.username},
                 }
             )
 
@@ -291,29 +290,29 @@ class VerifyOTPAPI(APIView):
                     {"status": 400, "message": "Entered Invalid OTP"}, status=400
                 )
 
-            if token["token_type"] == "update_email":
-                user = UserModel.objects.get(user_id=token["email"])
+            type = token["token_type"]
+
+            if type == "update_email":
+                user = UserModel.objects.get(id=token["email"])
 
                 user.email = cache["data"]["email"]
                 user.save()
 
                 response = {"status": 200, "message": "Verification successful"}
 
-            elif token["token_type"] == "signup":
-                user = UserModel.objects.create(
-                    username=cache["data"]["username"],
-                    password=cache["data"]["password"],
-                    email=cache["data"]["email"],
-                )
+            elif type == "signup" or type == "invite":
 
-                user,_ = create_user_with_default_workspace(cache["data"])
+                if type == "invite":
+                    pass
+
+                user, _ = create_user_with_default_workspace(cache["data"])
 
                 token = RefreshToken.for_user(user)
                 response = {
                     "status": 200,
                     "message": "Verification successful",
                     "user": {
-                        "user_id": user.user_id,
+                        "id": user.id,
                         "username": user.username,
                     },
                     "refresh": str(token),

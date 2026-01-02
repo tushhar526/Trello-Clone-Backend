@@ -3,7 +3,7 @@ from django.db import models
 # Create your models here.
 
 
-class Status(models.Model):
+class StatusModel(models.Model):
     status_id = models.AutoField(primary_key=True)
     workspace = models.ForeignKey(
         "workspaces.WorkspaceModel", on_delete=models.CASCADE, related_name="statuses"
@@ -19,7 +19,7 @@ class Status(models.Model):
         return f"{self.name} in {self.workspace.name}"
 
 
-class Task(models.Model):
+class TaskModel(models.Model):
     task_id = models.AutoField(primary_key=True)
     workspace = models.ForeignKey(
         "workspaces.WorkspaceModel", on_delete=models.CASCADE, related_name="tasks"
@@ -27,7 +27,7 @@ class Task(models.Model):
     title = models.CharField(max_length=200, blank=False, null=False)
     description = models.TextField(blank=True, null=True)
     status = models.ForeignKey(
-        Status, on_delete=models.SET_NULL, null=True, related_name="tasks"
+        StatusModel, on_delete=models.SET_NULL, null=True, related_name="tasks"
     )
     assigned_to = models.ManyToManyField(
         "api.UserModel",

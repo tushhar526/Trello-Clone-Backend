@@ -19,7 +19,7 @@ load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
-
+AUTH_USER_MODEL = "api.UserModel"
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
@@ -73,8 +73,8 @@ SIMPLE_JWT = {
     "LEEWAY": 0,
     "AUTH_HEADER_TYPES": ("Bearer",),
     "AUTH_HEADER_NAME": "HTTP_AUTHORIZATION",
-    "USER_ID_FIELD": "user_id",
-    "USER_ID_CLAIM": "user_id",
+    "USER_ID_FIELD": "id",
+    "USER_ID_CLAIM": "id",
     "USER_AUTHENTICATION_RULE": "rest_framework_simplejwt.authentication.default_user_authentication_rule",
     "ON_LOGIN_SUCCESS": "rest_framework_simplejwt.serializers.default_on_login_success",
     "ON_LOGIN_FAILED": "rest_framework_simplejwt.serializers.default_on_login_failed",
@@ -111,6 +111,13 @@ INSTALLED_APPS = [
     "workspaces",
     "rest_framework",
     "corsheaders",
+]
+
+DEFAULT_STATUSES = [
+    {"name": "Overdue", "color": "#ef4444"},
+    {"name": "Todo", "color": "#6b7280"},
+    {"name": "In Progress", "color": "#eab308"},
+    {"name": "Completed", "color": "#22c55e"},
 ]
 
 MIDDLEWARE = [

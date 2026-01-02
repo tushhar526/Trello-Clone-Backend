@@ -1,7 +1,8 @@
 import os
 import pyotp
 import smtplib
-from .models import UserModel
+from api.models import UserModel
+from tasks.models import StatusModel
 from dotenv import load_dotenv
 from workspaces.models import *
 from django.conf import settings
@@ -31,10 +32,12 @@ def create_user_with_default_workspace(data):
 
     for role_name, perms in settings.DEFAULT_ROLES.items():
         RoleModel.objects.create(
-            workspace=workspace,
-            role_name=role_name,
-            permissions={role_name: perms},
-            is_default=True,
+            workspace=workspace, role_name=role_name, permissions={role_name: perms}
+        )
+
+    for status in enumerate(settings.DEFAULT_STATUSES):
+        StatusModel.objects.create(
+            workspace=workspace, name=status["name"], color=status["color"]
         )
 
     owner_role = RoleModel.objects.get(workspace=workspace, role_name="owner")
