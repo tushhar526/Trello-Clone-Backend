@@ -30,7 +30,7 @@ class TaskModel(models.Model):
         StatusModel, on_delete=models.SET_NULL, null=True, related_name="tasks"
     )
     assigned_to = models.ManyToManyField(
-        "api.UserModel",
+        "workspaces.WorkspaceMemberModel",
         blank=True,
         related_name="assigned_tasks",
     )

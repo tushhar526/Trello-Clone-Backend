@@ -30,11 +30,11 @@ class WorkspaceAPI(APIView):
                         {
                             "workspace_id": membership.workspace.workspace_id,
                             "name": membership.workspace.name,
-                            # "owner": membership.workspace.owner.username,
-                            # "role": membership.role.role_name,
-                            # "permissions": membership.role.permissions.get(
-                            #     membership.role.role_name, []
-                            # ),
+                            "owner": membership.workspace.owner.username,
+                            "role": membership.role.role_name,
+                            "permissions": membership.role.permissions.get(
+                                membership.role.role_name, []
+                            ),
                         }
                         for membership in memberships
                     ],

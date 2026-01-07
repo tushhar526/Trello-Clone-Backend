@@ -1,11 +1,11 @@
 import os
 import pyotp
 import smtplib
-from api.models import UserModel
-from tasks.models import StatusModel
 from dotenv import load_dotenv
 from workspaces.models import *
+from api.models import UserModel
 from django.conf import settings
+from tasks.models import StatusModel
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
@@ -35,7 +35,7 @@ def create_user_with_default_workspace(data):
             workspace=workspace, role_name=role_name, permissions={role_name: perms}
         )
 
-    for status in enumerate(settings.DEFAULT_STATUSES):
+    for status in settings.DEFAULT_STATUSES:
         StatusModel.objects.create(
             workspace=workspace, name=status["name"], color=status["color"]
         )
@@ -59,7 +59,7 @@ def sendOTP(email, username, otp):
     
     OTP: {otp}
     
-    This OTP is valid for 60 seconds.
+    This OTP is valid for 5 minutes.
     
     If you didn't create an account, please ignore this email.
     

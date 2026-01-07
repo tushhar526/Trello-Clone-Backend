@@ -1,7 +1,8 @@
 import jwt
 import os
+import json
 from dotenv import load_dotenv
-from .custom_exception import *
+from backend.helper.custom_exception import *
 from datetime import datetime, timedelta, timezone
 from django.contrib.auth.hashers import make_password
 
@@ -12,11 +13,11 @@ secret_key = os.getenv("SECRET_KEY")
 algorithm = os.getenv("ALGORITHM")
 
 
-def generate_token(token_type, email):
+def generate_token(token_type, username):
     payload = {
         "token_type": token_type,
-        "email": email,
-        "exp": datetime.now(timezone.utc) + timedelta(minutes=2),
+        "username": username,
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
     }
 
     token = jwt.encode(payload, secret_key, algorithm)
@@ -24,15 +25,10 @@ def generate_token(token_type, email):
 
 
 def auth_middleware(request):
-    auth_headers = request.headers.get("Authorization")
+    data = json.loads(request.body)
+    token = data.get("token")
 
-    if not auth_headers:
-        raise AuthenticationError("Authentication header is required")
-
-    try:
-        token = auth_headers.split(" ")[1]
-
-    except IndexError:
+    if not token:
         raise AuthenticationError("Invalid Authorization header format")
 
     # decoding the token

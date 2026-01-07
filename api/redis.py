@@ -1,7 +1,7 @@
 from django.core.cache import cache
 import json
 
-TIME_LIMIT = 120
+TIME_LIMIT = 300
 
 
 def setCache(key, value, tl=TIME_LIMIT):

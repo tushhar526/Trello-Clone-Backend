@@ -7,10 +7,10 @@ from django.contrib.auth.hashers import make_password
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny
 from .serializers import *
-from backend.helpers import *
+from backend.helper.otp import *
 from .redis import *
 from .auth_middlewares import *
-from .custom_exception import *
+from backend.helper.custom_exception import AuthenticationError
 
 
 # Create your views here.
@@ -24,13 +24,14 @@ class RegisterUserAPI(APIView):
             serializer = UserSerializer(data=request.data)
 
             if not serializer.is_valid():
+                first_error_field = list(serializer.errors.keys())[0]
+                first_error_message = serializer.errors[first_error_field][0]
                 return Response(
-                    {"status": 400, "message": serializer.error_messages}, status=400
+                    {"status": 400, "message": str(first_error_message)}, status=400
                 )
 
             data = serializer.validated_data
             data["password"] = make_password(data["password"])
-            print("hashed password = ", data["password"])
             otp = generate_OTP()
 
             if not sendOTP(data["email"], data["username"], otp):
@@ -39,9 +40,9 @@ class RegisterUserAPI(APIView):
                     status=400,
                 )
 
-            token = generate_token("signup", data["email"])
+            token = generate_token("signup", data["username"])
             cache = {"data": data, "otp": otp}
-            setCache(data["email"], cache)
+            setCache(data["username"], cache)
 
             return Response(
                 {
@@ -86,6 +87,14 @@ class LoginUserAPI(APIView):
                     )
 
             if not user.check_password(password):
+                print(
+                    "from frontend = ",
+                    identifier,
+                    " and  = ",
+                    password,
+                    "and user password = ",
+                    user.password,
+                )
                 return Response(
                     {"status": 401, "message": "Password didn't match"},
                     status=401,
@@ -96,7 +105,7 @@ class LoginUserAPI(APIView):
             return Response(
                 {
                     "status": 200,
-                    "user": {"id": user.id, "username": user.username},
+                    "user": {"id": user.user_id, "username": user.username},
                     "refresh": str(refresh),
                     "access": str(refresh.access_token),
                     "message": "Login successfull",
@@ -105,7 +114,6 @@ class LoginUserAPI(APIView):
             )
 
         except Exception as e:
-            print("Error in login = ", str(e))
             return Response(
                 {"status": 500, "message": "something went wrong"}, status=500
             )
@@ -118,18 +126,18 @@ class ResendOTPAPI(APIView):
         try:
             token = auth_middleware(request)
 
-            email = token["email"]
-            cache = getCache(email)
+            username = token["username"]
+            cache = getCache(username)
             otp = generate_OTP()
             cache["otp"] = otp
-            setCache(email, cache)
+            setCache(username, cache)
 
             if token["token_type"] == "signup":
-                username = cache["data"]["username"]
+                email = cache["data"]["email"]
             else:
-                username = username = UserModel.objects.values_list(
-                    "username", flat=True
-                ).get(email=email)
+                email = UserModel.objects.values_list("email", flat=True).get(
+                    username=username
+                )
 
             if not sendOTP(email, username, otp):
                 return Response(
@@ -140,7 +148,7 @@ class ResendOTPAPI(APIView):
                     status=400,
                 )
 
-            new_token = generate_token(token["token_type"], email)
+            new_token = generate_token(token["token_type"], username)
 
             return Response({"status": 200, token: new_token}, status=200)
 
@@ -166,10 +174,10 @@ class MagicLoginAPI(APIView):
                 )
 
             try:
-                user = UserModel.objects.get(id=token["email"])
+                user = UserModel.objects.get(username=token["username"])
             except UserModel.DoesNotExist:
                 return Response(
-                    {"status": 400, "message": "No user Found with that email"}
+                    {"status": 400, "message": "No user Found with that username"}
                 )
 
             token = RefreshToken.for_user(user)
@@ -209,7 +217,7 @@ class ForgotPasswordAPI(APIView):
                     {"status": 400, "message": "No user Found with that email"}
                 )
 
-            token = generate_token("magic_login", user.id)
+            token = generate_token("magic_login", user.username)
 
             if not sentLink(email, user.username, token):
                 return Response(
@@ -240,11 +248,12 @@ class ResetPasswordAPI(APIView):
                 )
 
             try:
-                user = UserModel.objects.get(id=token["id"])
+                user = UserModel.objects.get(username=token["username"])
             except UserModel.DoesNotExist:
                 return Response({"status": 400, "message": "No user Found"})
 
             user.password = make_password(password)
+            user.save()
 
             token = RefreshToken.for_user(user)
 
@@ -254,16 +263,14 @@ class ResetPasswordAPI(APIView):
                     "message": "Password reset Successfull",
                     "refresh": str(token),
                     "access": str(token.access_token),
-                    "user": {"id": user.id, "username": user.username},
+                    "user": {"id": user.user_id, "username": user.username},
                 }
             )
 
         except AuthenticationError as e:
-            print("Error here", str(e))
             return Response({"status": 400, "message": str(e)}, status=400)
 
         except Exception as e:
-            print("Reset password error = ", str(e))
             return Response(
                 {"status": 500, "message": "Internal Server error"}, status=500
             )
@@ -283,7 +290,7 @@ class VerifyOTPAPI(APIView):
                     status=400,
                 )
 
-            cache = getCache(token["email"])
+            cache = getCache(token["username"])
 
             if cache["otp"] != otp:
                 return Response(
@@ -293,7 +300,7 @@ class VerifyOTPAPI(APIView):
             type = token["token_type"]
 
             if type == "update_email":
-                user = UserModel.objects.get(id=token["email"])
+                user = UserModel.objects.get(username=token["username"])
 
                 user.email = cache["data"]["email"]
                 user.save()
@@ -312,7 +319,7 @@ class VerifyOTPAPI(APIView):
                     "status": 200,
                     "message": "Verification successful",
                     "user": {
-                        "id": user.id,
+                        "id": user.user_id,
                         "username": user.username,
                     },
                     "refresh": str(token),
@@ -326,6 +333,7 @@ class VerifyOTPAPI(APIView):
             return Response(response, status=200)
 
         except AuthenticationError as e:
+            print("Authentication error = ", str(e))
             return Response({"status": 401, "message": str(e)}, status=401)
 
         except Exception as e:

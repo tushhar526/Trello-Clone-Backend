@@ -10,30 +10,33 @@ from django.contrib.auth.models import (
 
 
 # Create your models here.
-
-
-class UserManager(BaseUserManager):
-    def create_user(self, username, password=None, **extra_fields):
-        if not username:
-            raise ValueError("Username is required")
-
-        user = self.model(username=username, **extra_fields)
-        user.set_password(password)
-        user.save(using=self._db)
-        return user
-
-
-class UserModel(AbstractBaseUser, PermissionsMixin):
-    id = models.AutoField(primary_key=True)
+class UserModel(models.Model):
+    user_id = models.AutoField(primary_key=True)
     username = models.CharField(max_length=50, blank=False, null=False, unique=True)
     password = models.CharField(max_length=250, blank=False, null=False)
-    email = models.EmailField(max_length=100, unique=True, null=True, blank=True)
+    email = models.EmailField(max_length=100, null=True, blank=True)
     created_at = models.DateField(auto_now_add=True)
-
-    objects = UserManager()
+    is_active = models.BooleanField(default=True)
+    is_staff = models.BooleanField(default=False)
 
     USERNAME_FIELD = "username"
     REQUIRED_FIELDS = []
+
+    @property
+    def is_anonymous(self):
+        return False
+
+    @property
+    def is_authenticated(self):
+        return True
+
+    def has_perm(self, perm, obj=None):
+        """Check if user has permission"""
+        return self.is_staff
+
+    def has_module_perms(self, app_label):
+        """Check if user has module permissions"""
+        return self.is_staff
 
     def set_password(self, raw_password):
         self.password = make_password(raw_password)
