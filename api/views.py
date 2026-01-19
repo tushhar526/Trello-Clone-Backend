@@ -1,6 +1,8 @@
 from django.shortcuts import render
 from .models import *
+from drf_spectacular.utils import extend_schema, OpenApiParameter
 from rest_framework.views import APIView
+from rest_framework.generics import GenericAPIView
 from rest_framework_simplejwt.tokens import RefreshToken
 from datetime import timedelta
 from django.contrib.auth.hashers import make_password
@@ -19,6 +21,11 @@ from backend.helper.custom_exception import AuthenticationError
 class RegisterUserAPI(APIView):
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        request=UserSerializer,
+        responses={200: {"type": "object"}},
+        description="Sign up",
+    )
     def post(self, request):
         try:
             serializer = UserSerializer(data=request.data)
@@ -51,18 +58,28 @@ class RegisterUserAPI(APIView):
                     "message": "An OTP is sent to your provided contact",
                 }
             )
+        except AppException:
+            raise
         except Exception as e:
-            print("Error in register = ", str(e))
-            return Response(
-                {"status": 500, "message": "Internal server error"}, status=500
-            )
+            print(f"Unexpected error: {str(e)}")
+            raise AppException("Something went wrong")
 
 
-class LoginUserAPI(APIView):
+class LoginUserAPI(GenericAPIView):
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        request=LoginSerializer,
+        responses={200: {"type": "object"}},
+        description="Login with username or email",
+    )
     def post(self, request):
         try:
+            serializer = LoginSerializer(data=request.data)
+
+            if not serializer.is_valid():
+                raise AppException(str(serializer.errors))
+
             identifier = request.data.get("identifier")
             password = request.data.get("password")
 
@@ -81,42 +98,33 @@ class LoginUserAPI(APIView):
                 try:
                     user = UserModel.objects.get(email=identifier)
                 except UserModel.DoesNotExist:
-                    return Response(
-                        {"status": 404, "message": "No User found"},
-                        status=404,
-                    )
+                    raise AuthenticationError("No User found")
 
             if not user.check_password(password):
-                print(
-                    "from frontend = ",
-                    identifier,
-                    " and  = ",
-                    password,
-                    "and user password = ",
-                    user.password,
-                )
-                return Response(
-                    {"status": 401, "message": "Password didn't match"},
-                    status=401,
-                )
+                raise AuthenticationError("Password didn't match")
 
             refresh = RefreshToken.for_user(user)
 
             return Response(
                 {
                     "status": 200,
-                    "user": {"id": user.user_id, "username": user.username},
+                    "user": {
+                        "id": user.user_id,
+                        "username": user.username,
+                        "email": user.email,
+                    },
                     "refresh": str(refresh),
                     "access": str(refresh.access_token),
                     "message": "Login successfull",
                 },
                 status=200,
             )
-
+        except AppException as e:
+            print(f"Unexpected error: {str(e)}")
+            raise
         except Exception as e:
-            return Response(
-                {"status": 500, "message": "something went wrong"}, status=500
-            )
+            print(f"Unexpected error: {str(e)}")
+            raise AppException("Something went wrong")
 
 
 class ResendOTPAPI(APIView):
@@ -153,12 +161,12 @@ class ResendOTPAPI(APIView):
             return Response({"status": 200, token: new_token}, status=200)
 
         except AuthenticationError as e:
-            return Response({"status": 401, "message": str(e)}, status=401)
-
+            raise AuthenticationError(message=str(e))
+        except AppException:
+            raise
         except Exception as e:
-            return Response(
-                {"status": 500, "message": "Internal Server Error"}, status=500
-            )
+            print(f"Unexpected error: {str(e)}")
+            raise AppException("Something went wrong")
 
 
 class MagicLoginAPI(APIView):
@@ -191,11 +199,12 @@ class MagicLoginAPI(APIView):
                 }
             )
         except AuthenticationError as e:
-            return Response({"status": 401, "message": str(e)})
+            raise AuthenticationError(message=str(e))
+        except AppException:
+            raise
         except Exception as e:
-            return Response(
-                {"status": 500, "message": "Internal Server Error"}, status=500
-            )
+            print(f"Unexpected error: {str(e)}")
+            raise AppException("Something went wrong")
 
 
 class ForgotPasswordAPI(APIView):
@@ -227,11 +236,11 @@ class ForgotPasswordAPI(APIView):
             return Response(
                 {"status": 200, "message": "Link sent to provided Email"}, status=200
             )
+        except AppException:
+            raise
         except Exception as e:
-            print("Error in  forgot password = ", str(e))
-            return Response(
-                {"status": 500, "message": "Internal Server error"}, status=500
-            )
+            print(f"Unexpected error: {str(e)}")
+            raise AppException("Something went wrong")
 
 
 class ResetPasswordAPI(APIView):
@@ -268,77 +277,80 @@ class ResetPasswordAPI(APIView):
             )
 
         except AuthenticationError as e:
-            return Response({"status": 400, "message": str(e)}, status=400)
-
+            raise AuthenticationError(message=str(e))
+        except AppException:
+            raise
         except Exception as e:
-            return Response(
-                {"status": 500, "message": "Internal Server error"}, status=500
-            )
+            print(f"Unexpected error: {str(e)}")
+            raise AppException("Something went wrong")
 
 
 class VerifyOTPAPI(APIView):
     permission_classes = [AllowAny]
+    authentication_classes = []
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="X-OTP-Token",
+                type=str,
+                location=OpenApiParameter.HEADER,
+                required=True,
+                description="Custom OTP verification token",
+            )
+        ],
+        request=VerifyOTPSerializer,
+        responses={200: {"type": "object"}},
+    )
     def post(self, request):
-        try:
-            token = auth_middleware(request)
-            otp = request.data.get("otp")
 
-            if not otp:
-                return Response(
-                    {"status": 400, "message": "OTP is required for verification"},
-                    status=400,
-                )
+        token = request.headers.get("X-OTP-Token")
+        if not token:
+            raise AuthenticationError("OTP token missing")
 
-            cache = getCache(token["username"])
+        token_data = auth_middleware(token)
 
-            if cache["otp"] != otp:
-                return Response(
-                    {"status": 400, "message": "Entered Invalid OTP"}, status=400
-                )
+        serializer = VerifyOTPSerializer(
+            data=request.data,
+            context={"token": token_data},
+        )
+        serializer.is_valid(raise_exception=True)
 
-            type = token["token_type"]
+        token = serializer.validated_data["token"]
+        cache = serializer.validated_data["cache"]
+        token_type = token["token_type"]
 
-            if type == "update_email":
-                user = UserModel.objects.get(username=token["username"])
+        if token_type == "update_email":
+            user = UserModel.objects.get(username=token["username"])
+            user.email = cache["data"]["email"]
+            user.save()
 
-                user.email = cache["data"]["email"]
-                user.save()
+            return Response(
+                {"status": 200, "message": "Verification successful"},
+                status=200,
+            )
 
-                response = {"status": 200, "message": "Verification successful"}
+        elif token_type in ("signup", "invite"):
 
-            elif type == "signup" or type == "invite":
+            if token_type == "invite":
+                pass  # invite logic later
 
-                if type == "invite":
-                    pass
+            user, _ = create_user_with_default_workspace(cache["data"])
 
-                user, _ = create_user_with_default_workspace(cache["data"])
+            refresh = RefreshToken.for_user(user)
 
-                token = RefreshToken.for_user(user)
-                response = {
+            return Response(
+                {
                     "status": 200,
                     "message": "Verification successful",
                     "user": {
                         "id": user.user_id,
                         "username": user.username,
                     },
-                    "refresh": str(token),
-                    "access": str(token.access_token),
-                }
-                user.save()
-
-            else:
-                return Response({"status": 400, "message": "Invalid Token Type"})
-
-            return Response(response, status=200)
-
-        except AuthenticationError as e:
-            print("Authentication error = ", str(e))
-            return Response({"status": 401, "message": str(e)}, status=401)
-
-        except Exception as e:
-            print("Error in verifying token = ", str(e))
-            return Response(
-                {"status": 500, "message": "An Error occured while verifying your OTP"},
-                status=500,
+                    "refresh": str(refresh),
+                    "access": str(refresh.access_token),
+                },
+                status=200,
             )
+
+        raise AppException("Invalid Token Type")

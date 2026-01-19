@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 from workspaces.models import *
 from api.models import UserModel
 from django.conf import settings
-from tasks.models import StatusModel
+from tasks.models import StageModel
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
@@ -35,9 +35,9 @@ def create_user_with_default_workspace(data):
             workspace=workspace, role_name=role_name, permissions={role_name: perms}
         )
 
-    for status in settings.DEFAULT_STATUSES:
-        StatusModel.objects.create(
-            workspace=workspace, name=status["name"], color=status["color"]
+    for stage in settings.DEFAULT_STAGES:
+        StageModel.objects.create(
+            workspace=workspace, name=stage["name"], description=stage["description"]
         )
 
     owner_role = RoleModel.objects.get(workspace=workspace, role_name="owner")

@@ -38,7 +38,8 @@ REST_FRAMEWORK = {
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
-    "EXCEPTION_HANDLER": "helpers.exception_handler.custom_exception_handler",
+    "EXCEPTION_HANDLER": "backend.helper.custom_exception_handler.custom_exception_handler",
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }
 
 
@@ -47,14 +48,14 @@ DEFAULT_ROLES = {
         "add_task",
         "edit_task",
         "delete_task",
-        "add_status",
-        "rename_status",
-        "delete_status",
+        "add_stage",
+        "rename_stage",
+        "delete_stage",
         "full_access",
     ],
-    "admin": ["add_task", "edit_task", "delete_task", "add_status"],
+    "admin": ["add_task", "edit_task", "delete_task", "add_stage"],
     "manager": ["add_task"],
-    "dev": ["change_status"],
+    "dev": ["change_stage"],
 }
 
 
@@ -98,6 +99,26 @@ SIMPLE_JWT = {
 }
 
 
+SPECTACULAR_SETTINGS = {
+    "TITLE": "Task API",
+    "DESCRIPTION": "Task management backend",
+    "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
+    "SECURITY": [
+        {"BearerAuth": []},
+    ],
+    "COMPONENTS": {
+        "securitySchemes": {
+            "BearerAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "JWT",
+            }
+        }
+    },
+}
+
+
 # Application definition
 
 INSTALLED_APPS = [
@@ -112,13 +133,11 @@ INSTALLED_APPS = [
     "workspaces",
     "rest_framework",
     "corsheaders",
+    "drf_spectacular",
 ]
 
-DEFAULT_STATUSES = [
-    {"name": "Overdue", "color": "#ef4444"},
-    {"name": "Todo", "color": "#6b7280"},
-    {"name": "In Progress", "color": "#eab308"},
-    {"name": "Completed", "color": "#22c55e"},
+DEFAULT_STAGES = [
+    {"name": "Todo", "description": "These are the tasks that are needed to be done."},
 ]
 
 MIDDLEWARE = [

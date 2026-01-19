@@ -1,4 +1,4 @@
-from ...workspaces.models import WorkspaceMemberModel
+from workspaces.models import WorkspaceMemberModel
 
 
 def has_permission(user, workspace, permission):

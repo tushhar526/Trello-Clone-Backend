@@ -1,4 +1,7 @@
-class AppException(Exception):
+from rest_framework.exceptions import APIException
+
+
+class AppException(APIException):
     """
     Base exception for the entire project.
     All custom exceptions MUST inherit from this.
@@ -15,17 +18,29 @@ class AppException(Exception):
 
 class AuthenticationError(AppException):
     default_message = "Authentication failed"
-    status_code = 401
+    status_code = 402
     error_code = "authentication_error"
 
 
 class PermissionDeniedError(AppException):
     default_message = "Permission denied"
-    status_code = 402
+    status_code = 403
     error_code = "permission_denied"
 
 
 class WorkspaceError(AppException):
     default_message = "Workspace Error"
-    status_code = 402
+    status_code = 405
     error_code = "workspace_error"
+
+
+class TasksError(AppException):
+    default_message = "Task Error"
+    status_code = 406
+    error_code = "tasks_error"
+
+
+class StageError(AppException):
+    default_message = "Stage Error"
+    status_code = 407
+    error_code = "stage_error"

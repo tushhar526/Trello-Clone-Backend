@@ -1,5 +1,7 @@
 from rest_framework import serializers
 from .models import *
+from .auth_middlewares import auth_middleware
+from .redis import *
 import re
 
 
@@ -40,3 +42,35 @@ class UserSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Email Already registered")
 
         return value
+
+
+class LoginSerializer(serializers.Serializer):
+    identifier = serializers.CharField(help_text="Username or email")
+    password = serializers.CharField(
+        write_only=True,
+        required=True,
+        min_length=8,
+        error_messages={
+            "required": "Password is Required",
+            "min_length": "Password should be at least 8 character long",
+        },
+    )
+
+
+class VerifyOTPSerializer(serializers.Serializer):
+    otp = serializers.CharField(required=True)
+
+    def validate(self, attrs):
+        otp = attrs["otp"]
+        token = self.context["token"]
+
+        cache = getCache(token["username"])
+
+        if not cache or "otp" not in cache:
+            raise serializers.ValidationError("OTP not found or expired")
+
+        if cache["otp"] != otp:
+            raise serializers.ValidationError("Entered Invalid OTP")
+
+        attrs["cache"] = cache
+        return attrs
