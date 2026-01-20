@@ -8,6 +8,17 @@ from backend.helper.custom_exception import AuthenticationError
 secret_key = os.getenv("SECRET_KEY")
 algorithm = os.getenv("ALGORITHM")
 
+def generate_token(token_type, username):
+    payload = {
+        "token_type": token_type,
+        "username": username,
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+    }
+
+    token = jwt.encode(payload, secret_key, algorithm)
+    return token
+
+
 def generate_invite_token(email, workspace_id, role_id):
     """Generate invitation token"""
     payload = {
@@ -15,10 +26,11 @@ def generate_invite_token(email, workspace_id, role_id):
         "email": email,
         "workspace_id": workspace_id,
         "role_id": role_id,
-        "exp": datetime.now(timezone.utc) + timedelta(hours=24),
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
     }
     token = jwt.encode(payload, secret_key, algorithm=algorithm)
     return token
+
 
 def verify_invite_token(token):
     """Verify invitation token"""

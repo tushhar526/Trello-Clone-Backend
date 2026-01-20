@@ -37,7 +37,7 @@ class TaskModel(models.Model):
     created_by = models.ForeignKey(
         "api.UserModel", on_delete=models.CASCADE, related_name="created_tasks"
     )
-    is_due = models.BooleanField(default=False)  # Add this
+    is_due = models.BooleanField(default=True)  # Add this
     due = models.DateTimeField(blank=True, null=True)  # Add this
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

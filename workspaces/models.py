@@ -21,7 +21,7 @@ class RoleModel(models.Model):
         WorkspaceModel, on_delete=models.CASCADE, related_name="roles"
     )
     role_name = models.CharField(max_length=50)
-    permissions = models.JSONField(default=dict)
+    permissions = models.JSONField(default=list, blank=True,null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

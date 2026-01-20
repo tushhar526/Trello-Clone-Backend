@@ -13,10 +13,14 @@ from backend.helper.custom_exception import AppException, WorkspaceError
 from backend.helper.token import *
 from django.core.mail import send_mail
 from drf_spectacular.utils import extend_schema, OpenApiParameter
+from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
 from drf_spectacular.types import OpenApiTypes
 from backend.helper.custom_exception import PermissionDeniedError
+from backend.helper.email import sendInvite
 
 # Create your views here.
+BASE_URL = os.getenv("BASE_URL")
 
 
 class WorkspaceAPI(ViewSet):
@@ -105,6 +109,7 @@ class WorkspaceAPI(ViewSet):
 
 class RoleViewSet(ViewSet):
     permission_classes = [IsAuthenticated]
+    serializer_class = RoleSerializer
 
     @extend_schema(
         parameters=[
@@ -143,32 +148,46 @@ class RoleViewSet(ViewSet):
         serializer = RoleSerializer(roles, many=True)
         return Response({"status": 200, "roles": serializer.data}, status=200)
 
+    @extend_schema(
+        request=RoleSerializer, responses=RoleSerializer  # Add this for Swagger
+    )
     def create(self, request):
         """Create a new role"""
         user = request.user
         data = request.data
 
-        workspace_id = data.get("workspace_id")
+        workspace_id = data.get("workspace")
         role_name = data.get("role_name")
-        permissions = data.get("permissions", {})
+        permissions = data.get("permissions", [])
+
+        if not all([workspace_id, role_name]):
+            raise AppException("workspace_id and role_name are required")
 
         try:
             workspace = WorkspaceModel.objects.get(workspace_id=workspace_id)
         except WorkspaceModel.DoesNotExist:
             raise AppException("Workspace not found")
 
-        # Only workspace owner can create roles
         if workspace.owner != user:
             raise PermissionDeniedError("Only workspace owner can create roles")
 
         if RoleModel.objects.filter(workspace=workspace, role_name=role_name).exists():
             raise AppException("Role already exists in this workspace")
 
-        role = RoleModel.objects.create(
-            workspace=workspace, role_name=role_name, permissions=permissions
+        # Use serializer for validation
+        serializer = RoleSerializer(
+            data={
+                "workspace": workspace.workspace_id,
+                "role_name": role_name,
+                "permissions": permissions,
+            }
         )
 
-        serializer = RoleSerializer(role)
+        if not serializer.is_valid():
+            raise AppException(str(serializer.errors))
+
+        role = serializer.save()
+
         return Response(
             {
                 "status": 201,
@@ -176,6 +195,80 @@ class RoleViewSet(ViewSet):
                 "role": serializer.data,
             },
             status=201,
+        )
+
+    def retrieve(self, request, pk=None):
+        """Get a specific role"""
+        try:
+            role = RoleModel.objects.get(role_id=pk)
+        except RoleModel.DoesNotExist:
+            raise AppException("Role not found")
+
+        # Check if user has access to this role's workspace
+        workspace = role.workspace
+        if (
+            not WorkspaceMemberModel.objects.filter(
+                workspace=workspace, user=request.user
+            ).exists()
+            and workspace.owner != request.user
+        ):
+            raise PermissionDeniedError("You don't have access to this role")
+
+        serializer = RoleSerializer(role)
+        return Response({"status": 200, "role": serializer.data}, status=200)
+
+    @extend_schema(request=RoleSerializer, responses=RoleSerializer)  # For Swagger
+    def partial_update(self, request, pk=None):
+        """Update a role"""
+        user = request.user
+
+        try:
+            role = RoleModel.objects.get(role_id=pk)
+        except RoleModel.DoesNotExist:
+            raise AppException("Role not found")
+
+        workspace = role.workspace
+        if workspace.owner != user:
+            raise PermissionDeniedError("Only workspace owner can update roles")
+
+        # Partial update - only update provided fields
+        serializer = RoleSerializer(role, data=request.data, partial=True)
+        if not serializer.is_valid():
+            raise AppException(str(serializer.errors))
+
+        serializer.save()
+
+        return Response(
+            {
+                "status": 200,
+                "message": "Role updated successfully",
+                "role": serializer.data,
+            },
+            status=200,
+        )
+
+    def destroy(self, request, pk=None):
+        """Delete a role"""
+        user = request.user
+
+        try:
+            role = RoleModel.objects.get(role_id=pk)
+        except RoleModel.DoesNotExist:
+            raise AppException("Role not found")
+
+        workspace = role.workspace
+        if workspace.owner != user:
+            raise PermissionDeniedError("Only workspace owner can delete roles")
+
+        # Check if any members are using this role
+        if WorkspaceMemberModel.objects.filter(role=role).exists():
+            raise AppException("Cannot delete role: Members are assigned to this role")
+
+        role.delete()
+
+        return Response(
+            {"status": 200, "message": "Role deleted successfully"},
+            status=200,
         )
 
 
@@ -197,241 +290,204 @@ class WorkspaceMemberViewSet(ViewSet):
     def list(self, request):
         """List all members of a workspace"""
         workspace_id = request.query_params.get("workspace_id")
-        
+
         if not workspace_id:
             raise AppException("workspace_id is required")
-        
+
         try:
             workspace = WorkspaceModel.objects.get(workspace_id=workspace_id)
         except WorkspaceModel.DoesNotExist:
             raise AppException("Workspace not found")
-        
+
         # Check if user is member
-        if not WorkspaceMemberModel.objects.filter(
-            workspace=workspace, user=request.user
-        ).exists() and workspace.owner != request.user:
+        if (
+            not WorkspaceMemberModel.objects.filter(
+                workspace=workspace, user=request.user
+            ).exists()
+            and workspace.owner != request.user
+        ):
             raise PermissionDeniedError("You are not a member of this workspace")
-        
-        members = WorkspaceMemberModel.objects.filter(workspace=workspace).select_related('user', 'role')
+
+        members = WorkspaceMemberModel.objects.filter(
+            workspace=workspace
+        ).select_related("user", "role")
         serializer = WorkspaceMemberListSerializer(members, many=True)
-        return Response({
-            "status": 200,
-            "members": serializer.data
-        }, status=200)
+        return Response({"status": 200, "members": serializer.data}, status=200)
 
     def retrieve(self, request, pk=None):
         """Get a specific workspace member"""
         try:
-            member = WorkspaceMemberModel.objects.select_related('user', 'role').get(
+            member = WorkspaceMemberModel.objects.select_related("user", "role").get(
                 workspace_member_id=pk
             )
         except WorkspaceMemberModel.DoesNotExist:
             raise AppException("Member not found")
-        
-        if not WorkspaceMemberModel.objects.filter(
-            workspace=member.workspace, user=request.user
-        ).exists() and member.workspace.owner != request.user:
+
+        if (
+            not WorkspaceMemberModel.objects.filter(
+                workspace=member.workspace, user=request.user
+            ).exists()
+            and member.workspace.owner != request.user
+        ):
             raise PermissionDeniedError("You don't have access to this member")
-        
+
         serializer = WorkspaceMemberSerializer(member)
-        return Response({
-            "status": 200,
-            "member": serializer.data
-        }, status=200)
+        return Response({"status": 200, "member": serializer.data}, status=200)
 
     @extend_schema(request=WorkspaceInviteSerializer)
     def create(self, request):
         """Send workspace invitation"""
         user = request.user
         data = request.data
-        
+
         email = data.get("email")
         workspace_id = data.get("workspace_id")
         role_id = data.get("role_id")
-        
+
         if not all([email, workspace_id, role_id]):
             raise AppException("email, workspace_id, and role_id are required")
-        
+
         try:
             workspace = WorkspaceModel.objects.get(workspace_id=workspace_id)
         except WorkspaceModel.DoesNotExist:
             raise AppException("Workspace not found")
-        
+
         if workspace.owner != user:
             raise PermissionDeniedError("Only workspace owner can invite members")
-        
+
         try:
             role = RoleModel.objects.get(role_id=role_id, workspace=workspace)
         except RoleModel.DoesNotExist:
             raise AppException("Role not found in this workspace")
-        
+
         try:
             target_user = UserModel.objects.get(email=email)
         except UserModel.DoesNotExist:
             raise AppException("User with this email does not exist")
-        
+
         # Check if user is already a member
         if WorkspaceMemberModel.objects.filter(
             workspace=workspace, user=target_user
         ).exists():
             raise AppException("User is already a member of this workspace")
-        
+
         # Generate invitation token
         token = generate_invite_token(email, workspace_id, role_id)
-        
-        # Send email
-        invite_url = f"{settings.FRONTEND_URL}/workspace/accept-invite?token={token}"
-        
-        try:
-            send_mail(
-                subject=f"Invitation to join {workspace.name} workspace",
-                message=f"You have been invited to join the {workspace.name} workspace.\n\nClick the link below to accept:\n{invite_url}",
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[email],
-                html_message=f"""
-                    <h2>Workspace Invitation</h2>
-                    <p>You have been invited to join the <strong>{workspace.name}</strong> workspace.</p>
-                    <p><a href="{invite_url}">Click here to accept the invitation</a></p>
-                    <p>This link will expire in 24 hours.</p>
-                """,
-                fail_silently=False,
-            )
-        except Exception as e:
-            print(f"Email send error: {str(e)}")
-            raise AppException("Failed to send invitation email")
-        
-        return Response({
-            "status": 200,
-            "message": "Invitation sent successfully"
-        }, status=200)
+
+        if not sendInvite(
+            email, target_user.username, token, workspace.name, user.username
+        ):
+            raise AppException("An error occured in sending the invite link")
+
+        print("token sent to the another user = ", token)
+
+        return Response(
+            {"status": 200, "message": "Invitation sent successfully"}, status=200
+        )
 
     @extend_schema(request=WorkspaceInviteAcceptSerializer)
+    @action(detail=False, methods=["post"], url_path="accept-invite")
     def accept_invite(self, request):
         """Accept workspace invitation via token"""
         data = request.data
         token = data.get("token")
-        
+
         if not token:
             raise AppException("Token is required")
-        
+
         # Verify token
         payload = verify_invite_token(token)
-        
+
         email = payload.get("email")
         workspace_id = payload.get("workspace_id")
         role_id = payload.get("role_id")
-        
+
         try:
             workspace = WorkspaceModel.objects.get(workspace_id=workspace_id)
             role = RoleModel.objects.get(role_id=role_id, workspace=workspace)
             target_user = UserModel.objects.get(email=email)
-        except (WorkspaceModel.DoesNotExist, RoleModel.DoesNotExist, UserModel.DoesNotExist):
+        except (
+            WorkspaceModel.DoesNotExist,
+            RoleModel.DoesNotExist,
+            UserModel.DoesNotExist,
+        ):
             raise AppException("Invalid invitation data")
-        
+
         # Check if already a member
         if WorkspaceMemberModel.objects.filter(
             workspace=workspace, user=target_user
         ).exists():
             raise AppException("User is already a member of this workspace")
-        
+
         # Add user to workspace
         member = WorkspaceMemberModel.objects.create(
-            workspace=workspace,
-            user=target_user,
-            role=role
+            workspace=workspace, user=target_user, role=role
         )
-        
+
         serializer = WorkspaceMemberSerializer(member)
-        return Response({
-            "status": 201,
-            "message": "Successfully joined the workspace",
-            "member": serializer.data
-        }, status=201)
+        return Response(
+            {
+                "status": 201,
+                "message": "Successfully joined the workspace",
+                "member": serializer.data,
+            },
+            status=201,
+        )
 
     def partial_update(self, request, pk=None):
         """Update member role"""
         user = request.user
         data = request.data
-        
+
         try:
             member = WorkspaceMemberModel.objects.get(workspace_member_id=pk)
         except WorkspaceMemberModel.DoesNotExist:
             raise AppException("Member not found")
-        
+
         workspace = member.workspace
-        
+
         # Only workspace owner can update roles
         if workspace.owner != user:
             raise PermissionDeniedError("Only workspace owner can update member roles")
-        
+
         if "role_id" in data:
             try:
-                new_role = RoleModel.objects.get(role_id=data["role_id"], workspace=workspace)
+                new_role = RoleModel.objects.get(
+                    role_id=data["role_id"], workspace=workspace
+                )
                 member.role = new_role
                 member.save()
             except RoleModel.DoesNotExist:
                 raise AppException("Role not found in this workspace")
-        
+
         serializer = WorkspaceMemberSerializer(member)
-        return Response({
-            "status": 200,
-            "message": "Member role updated successfully",
-            "member": serializer.data
-        }, status=200)
+        return Response(
+            {
+                "status": 200,
+                "message": "Member role updated successfully",
+                "member": serializer.data,
+            },
+            status=200,
+        )
 
     def destroy(self, request, pk=None):
         """Remove member from workspace"""
         user = request.user
-        
+
         try:
             member = WorkspaceMemberModel.objects.get(workspace_member_id=pk)
         except WorkspaceMemberModel.DoesNotExist:
             raise AppException("Member not found")
-        
+
         workspace = member.workspace
-        
+
         # Only workspace owner can remove members (or member can remove themselves)
         if workspace.owner != user and member.user != user:
-            raise PermissionDeniedError("You don't have permission to remove this member")
-        
+            raise PermissionDeniedError(
+                "You don't have permission to remove this member"
+            )
+
         member.delete()
-        return Response({
-            "status": 200,
-            "message": "Member removed successfully"
-        }, status=200)
-
-# class WorkspaceMemberAPI(APIView):
-#     authentication_classes = [JWTAuthentication]
-#     permission_classes = [IsAuthenticated]
-
-#     def get(self, request):
-#         try:
-
-#             workspace_name = request.data.get("workspace_name")
-
-#             try:
-#                 workspace = WorkspaceModel.objects.get(name=workspace_name)
-#             except WorkspaceModel.DoesNotExist:
-#                 raise WorkspaceError("No Such workspace exist")
-
-#             members = WorkspaceMemberModel.objects.filter(
-#                 workspace=workspace
-#             ).select_related("user")
-
-#             return Response(
-#                 {
-#                     "status": 200,
-#                     "members": [
-#                         {
-#                             "member_id": member.workspace_member_id,
-#                             "name": member.user.username,
-#                         }
-#                         for member in members
-#                     ],
-#                 }
-#             )
-#         except AppException:
-#             raise
-#         except Exception as e:
-#             print(f"Unexpected error: {str(e)}")
-#             raise AppException("Something went wrong")
+        return Response(
+            {"status": 200, "message": "Member removed successfully"}, status=200
+        )

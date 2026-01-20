@@ -229,6 +229,13 @@ STATIC_URL = "static/"
 CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOWS_CREDENTIALS = True
 
+CORS_ALLOW_HEADERS = [
+    "content-type",
+    "authorization",
+    "x-verification-token",
+]
+
+
 EMAIL_BACKEND = os.getenv("EMAIL_BACKEND")
 EMAIL_HOST = os.getenv("EMAIL_HOST")
 EMAIL_PORT = os.getenv("EMAIL_PORT")

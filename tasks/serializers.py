@@ -56,8 +56,66 @@ class TaskCreateUpdateSerializer(serializers.ModelSerializer):
             "due",
         )
 
+# class StageSerializer(serializers.ModelSerializer):
+#     class Meta:
+#         model = StageModel
+#         fields = ["stage_id", "name", "description"]
+
 class StageSerializer(serializers.ModelSerializer):
     class Meta:
         model = StageModel
         fields = ["stage_id", "name", "description"]
 
+
+class StageListSerializer(StageSerializer):
+    """Serializer for listing stages - includes workspace info"""
+    workspace_name = serializers.CharField(source='workspace.name', read_only=True)
+    task_count = serializers.SerializerMethodField()
+    
+    class Meta(StageSerializer.Meta):
+        fields = StageSerializer.Meta.fields + ["workspace_name", "task_count", "created_at", "updated_at"]
+    
+    def get_task_count(self, obj):
+        return obj.tasks.count()
+
+
+class StageCreateSerializer(serializers.ModelSerializer):
+    workspace_id = serializers.IntegerField(write_only=True, required=True)
+    
+    class Meta:
+        model = StageModel
+        fields = ["name", "description", "workspace_id"]
+    
+    def validate_workspace_id(self, value):
+        """Validate that workspace exists"""
+        try:
+            workspace = WorkspaceModel.objects.get(workspace_id=value)
+        except WorkspaceModel.DoesNotExist:
+            raise serializers.ValidationError("Workspace does not exist")
+        return value
+    
+    def create(self, validated_data):
+        workspace_id = validated_data.pop('workspace_id')
+        workspace = WorkspaceModel.objects.get(workspace_id=workspace_id)
+        return StageModel.objects.create(workspace=workspace, **validated_data)
+
+
+class StageUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StageModel
+        fields = ["name", "description"]
+        extra_kwargs = {
+            'name': {'required': False},
+            'description': {'required': False}
+        }
+
+
+class StageDetailSerializer(StageSerializer):
+    """Serializer for detailed stage view"""
+    workspace = serializers.PrimaryKeyRelatedField(read_only=True)
+    workspace_name = serializers.CharField(source='workspace.name', read_only=True)
+    created_at = serializers.DateTimeField(format="%Y-%m-%d %H:%M:%S", read_only=True)
+    updated_at = serializers.DateTimeField(format="%Y-%m-%d %H:%M:%S", read_only=True)
+    
+    class Meta(StageSerializer.Meta):
+        fields = StageSerializer.Meta.fields + ["workspace", "workspace_name", "created_at", "updated_at"]
