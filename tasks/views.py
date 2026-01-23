@@ -344,13 +344,13 @@ class TasksAPI(ViewSet):
         if "description" in data:
             task.description = data["description"]
 
-        if "stage_id" in data:
-            if data["stage_id"] is None:
+        if "stage" in data:
+            if data["stage"] is None:
                 task.stage = None
             else:
                 try:
                     task.stage = StageModel.objects.get(
-                        stage_id=data["stage_id"],
+                        stage_id=data["stage"],
                         workspace=workspace,
                     )
                 except StageModel.DoesNotExist:
@@ -397,9 +397,6 @@ class TasksAPI(ViewSet):
     def destroy(self, request, pk=None):
         user = request.user
 
-        if not permissions.has_permission(user, workspace, "delete_task"):
-            raise PermissionDeniedError("You Do not have permission to Delete the task")
-
         try:
             task = TaskModel.objects.select_related("workspace").get(
                 task_id=pk,
@@ -408,6 +405,9 @@ class TasksAPI(ViewSet):
             raise TasksError("No such Task Found")
 
         workspace = task.workspace
+
+        if not permissions.has_permission(user, workspace, "delete_task"):
+            raise PermissionDeniedError("You Do not have permission to Delete the task")
 
         task.delete()
 

@@ -42,6 +42,7 @@ class WorkspaceAPI(ViewSet):
                     {
                         "workspace_id": m.workspace.workspace_id,
                         "name": m.workspace.name,
+                        "description":m.workspace.description,
                         "role": m.role.role_name,
                         "permissions": m.role.permissions.get(m.role.role_name, []),
                     }
@@ -299,7 +300,6 @@ class WorkspaceMemberViewSet(ViewSet):
         except WorkspaceModel.DoesNotExist:
             raise AppException("Workspace not found")
 
-        # Check if user is member
         if (
             not WorkspaceMemberModel.objects.filter(
                 workspace=workspace, user=request.user

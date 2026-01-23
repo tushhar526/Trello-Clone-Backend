@@ -6,6 +6,7 @@ from django.db import models
 class WorkspaceModel(models.Model):
     workspace_id = models.AutoField(primary_key=True)
     name = models.CharField(max_length=50, blank=False, null=False, unique=True)
+    description = models.CharField(max_length=100, blank=True, null=True)
     owner = models.ForeignKey(
         "api.UserModel", on_delete=models.CASCADE, related_name="owned_workspace"
     )
@@ -21,7 +22,7 @@ class RoleModel(models.Model):
         WorkspaceModel, on_delete=models.CASCADE, related_name="roles"
     )
     role_name = models.CharField(max_length=50)
-    permissions = models.JSONField(default=list, blank=True,null=True)
+    permissions = models.JSONField(default=list, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

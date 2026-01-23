@@ -232,6 +232,7 @@ class MagicLoginAPI(APIView):
         responses={200: {"type": "object"}},
         description="Magic login with verification token",
     )
+    
     def post(self, request):
         token_data = auth_middleware(request)
 
