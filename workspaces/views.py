@@ -42,7 +42,7 @@ class WorkspaceAPI(ViewSet):
                     {
                         "workspace_id": m.workspace.workspace_id,
                         "name": m.workspace.name,
-                        "description":m.workspace.description,
+                        "description": m.workspace.description,
                         "role": m.role.role_name,
                         "permissions": m.role.permissions.get(m.role.role_name, []),
                     }
@@ -311,7 +311,7 @@ class WorkspaceMemberViewSet(ViewSet):
         members = WorkspaceMemberModel.objects.filter(
             workspace=workspace
         ).select_related("user", "role")
-        serializer = WorkspaceMemberListSerializer(members, many=True)
+        serializer = WorkspaceMemberListSerializer(members, many=True)n
         return Response({"status": 200, "members": serializer.data}, status=200)
 
     def retrieve(self, request, pk=None):

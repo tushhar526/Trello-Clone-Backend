@@ -160,14 +160,14 @@ class TasksAPI(ViewSet):
                     "title": task.title,
                     "description": task.description,
                     "stage": stage.stage_id,
-                    "members": [
+                    "assigned_to": [
                         {
                             "workspace_member_id": member.workspace_member_id,
                             "username": member.user.username,
                         }
                         for member in task.assigned_to.all()
                     ],
-                    "isdue": task.is_due,
+                    "is_due": task.is_due,
                     "due": task.due,
                     "created_by": task.created_by.username,
                     "created_at": task.created_at,
@@ -357,7 +357,8 @@ class TasksAPI(ViewSet):
                     raise StageError("No such stage exists")
 
         if "assigned_to" in data:
-            member_ids = data["assigned_to"]
+            task_members = data["assigned_to"]
+            member_ids = [member["workspace_member_id"] for member in task_members]
 
             members = WorkspaceMemberModel.objects.filter(
                 workspace=workspace,
@@ -369,6 +370,9 @@ class TasksAPI(ViewSet):
 
             task.assigned_to.set(members)
 
+        if "is_due" in data:
+            task.is_due = data["is_due"]
+
         task.save()
 
         return Response(
@@ -378,15 +382,17 @@ class TasksAPI(ViewSet):
                     "task_id": task.task_id,
                     "title": task.title,
                     "description": task.description,
-                    "stage": task.stage.name if task.stage else None,
+                    "stage": task.stage.stage_id if task.stage else None,
                     "assigned_to": [
                         {
                             "workspace_member_id": m.workspace_member_id,
-                            "user_id": m.user.id,
+                            "user_id": m.user.user_id,
                             "username": m.user.username,
                         }
                         for m in task.assigned_to.select_related("user")
                     ],
+                    "is_due": task.is_due,
+                    "due": task.due,
                     "updated_at": task.updated_at,
                 },
             },

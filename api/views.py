@@ -106,6 +106,12 @@ class UserSettingsView(APIView):
         serializer = UserSettingsSerializer(user, data=data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
+        return Response(
+            {
+                "status": 200,
+                "message": "Settings updated successfully",
+            }
+        )
 
 
 class LoginUserAPI(APIView):
@@ -232,7 +238,6 @@ class MagicLoginAPI(APIView):
         responses={200: {"type": "object"}},
         description="Magic login with verification token",
     )
-    
     def post(self, request):
         token_data = auth_middleware(request)
 
